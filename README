@@ -1,0 +1,22 @@
+ABOUT
+=====
+Will be yet another STL to GCode slicer, this time with bonuses.
+
+Under heavy development.
+
+Right now it can load and show a STL model.
+
+RUNNING
+=======
+
+cd src
+ghc --make main -O2 -rtsopts
+./main
+
+DEPS
+====
+
+haskell-platform
+ghc-OpenGL
+ghc-parallel
+
