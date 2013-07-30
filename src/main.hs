@@ -11,6 +11,9 @@ import Control.Concurrent.STM
 import Control.Concurrent
 import Control.Concurrent.STM.TChan
 import Data.Maybe
+import Data.List (intersperse)
+import System.Exit
+import qualified Number.Quaternion as Q
 
 --data ProgState = ProgState {
 --    position :: Vertex3 GLfloat
@@ -19,8 +22,11 @@ import Data.Maybe
 instance Num (Vector3 GLfloat) where
   (Vector3 a b c) + (Vector3 d e f) = Vector3 (a+d) (b+e) (c+f)
 
-instance Num (GLfloat, Vector3 GLfloat) where
-  (u, (Vector3 a b c)) + (v, (Vector3 d e f)) = (u+v, Vector3 (a+d) (b+e) (c+f))
+instance Num (GLfloat, GLfloat) where
+  (u, w) + (v, z) = (u+v, w+z)
+--instance Num (GLfloat, Vector3 GLfloat) where
+--  (u, (Vector3 a b c)) + (v, (Vector3 d e f)) = (u+v, Vector3 (a+d) (b+e) (c+f))
+
 
 width = 400 :: GLfloat
 height = 400 :: GLfloat
@@ -73,7 +79,11 @@ display ref model bounds rotA mov pos rot = do
     qq <- readIORef ref
     rotAx <- get rotA
     rot $~ (+rotAx)
-    rotax <- get rot
+    rotXY <- get rot
+
+    let radAng = fst rotXY / 180.0 * pi
+        ang2 = snd rotXY / 180.0 * pi
+
     movax <- get mov
     pos $~ (+movax)
     posax <- get pos
@@ -93,7 +103,8 @@ display ref model bounds rotA mov pos rot = do
 
     translate $ (Vector3 0 0 (realToFrac $ -bounds/2) :: Vector3 GLfloat)
     translate $ posax
-    uncurry rotate rotax
+    rotate (fst rotXY) $ Vector3 1 0 0
+    rotate (snd rotXY) $ Vector3 0 (cos radAng) (-sin radAng)
   --  scale 0.5 0.5 (0.5 ::GLfloat)
 --    rotate (fromIntegral qq) $ (Vector3 1.0 0.0 0.0 :: Vector3 GLfloat)
 --    rotate (fromIntegral (qq+45)) $ (Vector3 0.0 1.0 0.0 :: Vector3 GLfloat)
@@ -107,19 +118,22 @@ display ref model bounds rotA mov pos rot = do
     loadIdentity
 
     translate $ Vector3 30 (-30) (0::GLfloat)
-    uncurry rotate rotax
+--    mapM (uncurry rotate) rotAx
+    rotate (fst rotXY) $ Vector3 1 0 0 --(cos ang2) (sin ang2) 0
+    rotate (snd rotXY) $ Vector3 0 (cos radAng) (-sin radAng)
+
 --    rotate (fromIntegral qq) $ (Vector3 1.0 0.0 0.0 :: Vector3 GLfloat)
 --    rotate (fromIntegral (qq+45)) $ (Vector3 0.0 1.0 0.0 :: Vector3 GLfloat)
 --    rotate (fromIntegral (qq+75)) $ (Vector3 0.0 0.0 1.0 :: Vector3 GLfloat)
     preservingMatrix $ showAxes
     swapBuffers -- refresh screen
 
-rot_args = [("-r", ( 90.0, Vector3   0.0   1.0   0.0 :: Vector3 GLfloat)),
-            ("-l", ( 90.0, Vector3   0.0 (-1.0)  0.0)),
-            ("-b", ( 90.0, Vector3   1.0   0.0   0.0)),
-            ("-t", ( 90.0, Vector3 (-1.0)  0.0   0.0)),
-            ("-k", (180.0, Vector3   1.0   0.0   0.0)),
-            ("-f", (180.0, Vector3 (-1.0)  0.0   0.0))]
+rot_args = [("-r", ( 0 ::GLfloat,      90.0 :: GLfloat)),
+            ("-l", ( 0,      90.0)),
+            ("-b", ( 90.0,    0.0)),
+            ("-t", ( -90.0,   0.0)),
+            ("-k", (180.0,    0.0)),
+            ("-f", (-180.0,   0.0))]
 
 modelSize facets = model_size
   where model = map (\(Facet n x y z) -> (x, y, z)) facets
@@ -136,17 +150,46 @@ displistFromFacets facets = do
   mlist' <- defineNewList Compile $ do
     renderPrimitive Triangles $
       mapM_ (\(Facet n x y z) -> do
-      currentColor $= (Color4 1.0 0.4 0.7 1.0 :: Color4 GLfloat)
+      --currentColor $= (Color4 0.9 0.4 0.7 1.0 :: Color4 GLfloat)
+      let (Vertex3 u0 i0 o0) = x
+          (Vertex3 u1 i1 o1) = y
+          (Vertex3 u2 i2 o2) = z
+      color (Color4 (realToFrac u0 / realToFrac i1)
+                              (realToFrac o2 / realToFrac u1)
+                              (realToFrac o1 / realToFrac i0) 1.0 :: Color4 GLfloat)
       normal $ (\(Vertex3 a b c) -> Normal3 a b c) n
       vertex $ x
+      color  (Color4 (realToFrac u2 / realToFrac o1)
+                              (realToFrac o0 / realToFrac u1)
+                              (realToFrac o1 / realToFrac i2) 1.0 :: Color4 GLfloat)
       vertex $ y
+      color (Color4 (realToFrac i0 / realToFrac u1)
+                              (realToFrac u2 / realToFrac i1)
+                              (realToFrac o0 / realToFrac u0) 1.0 :: Color4 GLfloat)
       vertex $ z) facets
   return mlist'
 
+usage pname = "usage: ./" ++ pname ++ " [--help] FILE [VIEW]\n"++
+  "where VIEW can be one of: " ++ (concat $ intersperse ", "
+    $ map fst rot_args) ++ ", and corresponds to Front, bacK, Top, etc.\n\n" ++
+  "Runtime Options:\n" ++
+  "You can use the above options from keyboard by pressing corresponding key.\n"++
+  "Arrows are for moving object around in window, and WASD for object rotation.\n"
+
 main = do
   (prognam,args) <- getArgsAndInitialize
-  initialDisplayMode $=
-      [WithDepthBuffer,DoubleBuffered,RGBAMode,WithAlphaComponent]
+  when ("--help" `elem` args) $ do
+    putStr $ usage prognam
+    exitFailure
+--  initialDisplayMode $=
+--      [WithDepthBuffer, DoubleBuffered, RGBAMode,
+--      WithAlphaComponent] --, WithSamplesPerPixel 4]
+    initialDisplayCapabilities $= [ With  DisplayRGB,
+                                    Where DisplayDepth IsAtLeast 16,
+                                    With  DisplaySamples,
+                                    Where DisplayStencil IsNotLessThan 2,
+                                    With  DisplayDouble ]
+
 -- We create a window with some title
   createWindow "katana"
 -- We add some directives
@@ -166,17 +209,21 @@ main = do
   g <- get sampleBuffers
   print g
 --  liftM print $ get samples
+--
+  hint LineSmooth $= Nicest
+  hint PolygonSmooth $= Nicest
 
   position (Light 0) $= Vertex4 10000 10000 10000 0
-  ambient (Light 0) $= Color4 1 1 1 1
+  ambient (Light 0) $= Color4 0.5 0.5 0.5 1
+  diffuse (Light 0) $= Color4 0.9 0.9 0.9 1
 
   light (Light 0) $= Enabled
   lighting $= Enabled
   depthFunc $= Just Less
-  normalize $= Enabled
+  --normalize $= Enabled
   la <- newIORef (0 :: Integer)
-  rot <- newIORef (maybe (0,Vector3 0 0 0) id $ lookup (args!!1) rot_args)
-  rotA <- newIORef (0,Vector3 0 0 0)
+  rot <- newIORef (maybe (0,0) id $ lookup (args!!1) rot_args)
+  rotA <- newIORef (0::GLfloat,0::GLfloat)
   mov <- newIORef (Vector3 0.0 0.0 (0.0 :: GLfloat))
   pos <- newIORef (Vector3 0.0 0.0 (0.0 :: GLfloat))
 
@@ -185,8 +232,9 @@ main = do
   blend $= Enabled
   blendFunc $= (SrcAlpha, OneMinusSrcAlpha)
 --  colorMaterial $= Enabled
-  colorMaterial $= Just (FrontAndBack, AmbientAndDiffuse)
-  keyboardMouseCallback $= Just (keyboard rotA mov)
+--  colorMaterial $= Just (FrontAndBack, AmbientAndDiffuse)
+  colorMaterial $= Just (Front, AmbientAndDiffuse)
+  keyboardMouseCallback $= Just (keyboard rot rotA mov)
   shadeModel $= Smooth
 
   ify <- initINotify
@@ -214,24 +262,24 @@ main = do
 --    keyboard rot mov (SpecialKey KeyPageDown) Up   (shift -> Up)   _ = rot $~ (+(0,Vector3 (-1.0) 0.0 0.0))
 --    keyboard rot mov (SpecialKey KeyPageDown) Down (shift -> Down) _ = rot $~ (+(2,Vector3 (1.0) 0.0 0.0))
 
-    keyboard rot mov (SpecialKey KeyHome    ) Up   _ _ = rot $~ (+(-1,Vector3  0.0  0.0  (1.0)))
-    keyboard rot mov (SpecialKey KeyHome    ) Down _ _ = rot $~ (+( 1,Vector3  0.0  0.0  (1.0)))
-    keyboard rot mov (SpecialKey KeyEnd     ) Up   _ _ = rot $~ (+( 1,Vector3  0.0  0.0  (1.0)))
-    keyboard rot mov (SpecialKey KeyEnd     ) Down _ _ = rot $~ (+(-1,Vector3  0.0  0.0  (1.0)))
-    keyboard rot mov (SpecialKey KeyDelete  ) Up   _ _ = rot $~ (+( 1,Vector3 (1.0)  0.0  0.0))
-    keyboard rot mov (SpecialKey KeyDelete  ) Down _ _ = rot $~ (+(-1,Vector3 (1.0) (0.0) 0.0))
-    keyboard rot mov (SpecialKey KeyPageDown) Up   _ _ = rot $~ (+(-1,Vector3 (1.0)  0.0  0.0))
-    keyboard rot mov (SpecialKey KeyPageDown) Down _ _ = rot $~ (+( 1,Vector3 (1.0)  0.0  0.0))
+    keyboard _ rot mov (Char 'w') Up   _ _ = rot $~ (+( 1, 0))
+    keyboard _ rot mov (Char 'w') Down _ _ = rot $~ (+(-1, 0))
+    keyboard _ rot mov (Char 's') Up   _ _ = rot $~ (+(-1, 0))
+    keyboard _ rot mov (Char 's') Down _ _ = rot $~ (+( 1, 0))
+    keyboard _ rot mov (Char 'a') Up   _ _ = rot $~ (+( 0, 1))
+    keyboard _ rot mov (Char 'a') Down _ _ = rot $~ (+( 0,-1))
+    keyboard _ rot mov (Char 'd') Up   _ _ = rot $~ (+( 0,-1))
+    keyboard _ rot mov (Char 'd') Down _ _ = rot $~ (+( 0, 1))
 
-    keyboard rot mov (SpecialKey KeyUp   ) Up   _ _ = mov $~ (+Vector3 0.0 (-1.0) 0.0)
-    keyboard rot mov (SpecialKey KeyUp   ) Down _ _ = mov $~ (+Vector3 0.0 (1.0) 0.0)
-    keyboard rot mov (SpecialKey KeyDown ) Up   _ _ = mov $~ (+Vector3 0.0 (1.0) 0.0)
-    keyboard rot mov (SpecialKey KeyDown ) Down _ _ = mov $~ (+Vector3 0.0 (-1.0) 0.0)
-    keyboard rot mov (SpecialKey KeyLeft ) Up   _ _ = mov $~ (+Vector3 (1.0) 0.0 0.0)
-    keyboard rot mov (SpecialKey KeyLeft ) Down _ _ = mov $~ (+Vector3 (-1.0) (0.0) 0.0)
-    keyboard rot mov (SpecialKey KeyRight) Up   _ _ = mov $~ (+Vector3 (-1.0) 0.0 0.0)
-    keyboard rot mov (SpecialKey KeyRight) Down _ _ = mov $~ (+Vector3 (1.0) 0.0 0.0)
-    keyboard rot mov (Char c) _ _ _ =
+    keyboard _ rot mov (SpecialKey KeyUp   ) Up   _ _ = mov $~ (+Vector3 0.0 (-1.0) 0.0)
+    keyboard _ rot mov (SpecialKey KeyUp   ) Down _ _ = mov $~ (+Vector3 0.0 (1.0) 0.0)
+    keyboard _ rot mov (SpecialKey KeyDown ) Up   _ _ = mov $~ (+Vector3 0.0 (1.0) 0.0)
+    keyboard _ rot mov (SpecialKey KeyDown ) Down _ _ = mov $~ (+Vector3 0.0 (-1.0) 0.0)
+    keyboard _ rot mov (SpecialKey KeyLeft ) Up   _ _ = mov $~ (+Vector3 (1.0) 0.0 0.0)
+    keyboard _ rot mov (SpecialKey KeyLeft ) Down _ _ = mov $~ (+Vector3 (-1.0) (0.0) 0.0)
+    keyboard _ rot mov (SpecialKey KeyRight) Up   _ _ = mov $~ (+Vector3 (-1.0) 0.0 0.0)
+    keyboard _ rot mov (SpecialKey KeyRight) Down _ _ = mov $~ (+Vector3 (1.0) 0.0 0.0)
+    keyboard rot _ mov (Char c) _ _ _ =
       case lookup ('-':[c]) rot_args of
         Just r  -> do rot $= r
         Nothing -> return ()
