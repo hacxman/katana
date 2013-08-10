@@ -5,7 +5,8 @@ import Data.IORef
 import Control.Parallel
 import Control.Parallel.Strategies
 import Control.Monad
-import STL
+import STL.STL
+import STL.AsciiSTL
 import System.INotify
 import Control.Concurrent.STM
 import Control.Concurrent

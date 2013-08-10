@@ -1,6 +1,5 @@
 {-# LANGUAGE OverloadedStrings, ScopedTypeVariables, DeriveFunctor #-}
-module STL (readSTL, loadSTL,
-            STL(..), Facet(..), Point(..)) where
+module STL.AsciiSTL (readSTL, loadSTL) where
 
 import Control.Applicative hiding (many)
 import Control.Monad
@@ -8,6 +7,7 @@ import qualified Data.Attoparsec.Char8 as AC
 import Data.Attoparsec.Combinator
 import Data.Attoparsec.Lazy as AL
 import Data.ByteString as B hiding (map)
+import Data.ByteString.Char8 as B hiding (map)
 import qualified Data.ByteString.Lazy as BL hiding (map)
 import qualified Data.ByteString.Lazy.Char8 as BLC
 import qualified Data.List as L
@@ -19,15 +19,10 @@ import Graphics.Rendering.OpenGL (Vertex3(..), GLfloat)
 
 import Prelude hiding (getContents)
 
+import STL.STL
+import STL.BinSTL
+
 default (ByteString)
-
-data STL = STL ByteString [Facet Double] deriving Show
-data Facet d = Facet { n,x,y,z :: Point d } deriving (Show, Functor)
-type Point d = Vertex3 d -- Point d d d deriving (Show, Functor)
---instance Normal (Point Doub
-
-emptyF = Facet emptyP emptyP emptyP emptyP
-emptyP = Vertex3 0 0 0 :: Vertex3 GLfloat
 
 parseHeader :: Parser ByteString
 parseHeader = string "solid " *> takeWhile1 azAZnum <* newline
@@ -87,7 +82,12 @@ readSTL file = parseSTL file
     Fail a b y -> error $ BLC.unpack a ++ "\n\n" ++ show b ++ "\n" ++ y
     Done c r -> r -}
 
-loadSTL fname = liftM readSTL $ BL.readFile fname
+loadSTL fname = do
+  contents <- BL.readFile fname
+  let upek = Prelude.take 5 $ BLC.unpack contents
+  return $ case upek of
+    ('s':'o':'l':'i':'d':_) -> readSTL contents
+    _ -> readBinSTL contents fname
 
 main = do
   STL n fs <- loadSTL "big.stl"
